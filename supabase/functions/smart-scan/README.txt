@@ -1,0 +1,1 @@
+Keep your currently deployed smart-scan index.ts here if packaging for deployment. API key stays in Supabase Secrets as GEMINI_API_KEY.

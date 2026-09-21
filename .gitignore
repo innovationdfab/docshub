@@ -1,0 +1,19 @@
+# Never commit API keys, private environment variables or credentials
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+credentials.json
+service-account*.json
+node_modules/
+.next/
+dist/
+build/
+*.log
+.DS_Store

@@ -1,0 +1,23 @@
+DocHub UI (index.html)
+        |
+        v
+Supabase Anonymous Auth
+        |
+        +--------------------+
+        |                    |
+        v                    v
+Postgres Database       Private Storage
+documents               documents bucket
+document_history
+        |
+        v
+Supabase Edge Function: smart-scan
+        |
+        v
+Gemini API
+        |
+        v
+Detected name / document type / renewal date / folder
+        |
+        v
+User confirmation -> Save -> Vault

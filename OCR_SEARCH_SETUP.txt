@@ -1,0 +1,16 @@
+DOCHUB OCR + SEARCH
+
+Implemented:
+- Gemini OCR fields are kept by Smart Scan.
+- document_number, issue_date, ocr_text and ai_confidence are saved to Supabase.
+- Front + Back OCR results are merged.
+- Existing Dashboard search now searches name, document type, document number, file name and OCR text.
+- Existing UI layout is preserved.
+
+Supabase:
+You already ran the OCR columns SQL. For a fresh project, run supabase/sql/05_ocr_search_fields.sql.
+
+Edge Function:
+Deploy/update supabase/functions/smart-scan/index.ts.
+
+Test with a NEW Smart Scan document. Existing old documents will not have OCR text until scanned again.

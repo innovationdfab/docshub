@@ -1,0 +1,24 @@
+DOCHUB — CLEAN GITHUB UPLOAD
+
+This folder has the old .git history removed and the real Supabase Edge Function .env file excluded. No Gemini API key is included. The index.html frontend and the Edge Function source remain in this folder.
+
+IMPORTANT: Your previous local Git commit included supabase/functions/smart-scan/.env. GitHub push protection rejects the old commit even after the file is deleted. Use THIS CLEAN EXTRACTED FOLDER for a new Git history. Do not copy the old .git folder or any .env secrets into it.
+
+1. In VS Code: File > Open Folder > the extracted docvault_site folder from this ZIP.
+2. Open Terminal > New Terminal. If git is not recognized in this terminal, run:
+   $env:Path += ';C:\Program Files\Git\cmd'
+3. Check with: git --version
+4. Run these commands one by one:
+   git init
+   git branch -M main
+   git remote add origin https://github.com/innovationdfab/docshub.git
+   git add .
+   git status
+   git commit -m "Upload DocHub without secrets"
+   git push -u origin main
+
+If GitHub says the remote main already has a different history, do not force push: stop and inspect the remote. If the repository requires pull requests, push a new branch and open a PR instead.
+
+SECURITY: Revoke/rotate the old Gemini API key that was included in the original .env, then put the replacement only in Supabase > Edge Functions > Secrets as GEMINI_API_KEY. Do not paste API keys into website HTML, check.js, GitHub, or any .env file you intend to commit.
+
+If you still get GH013, read the GitHub error's path and line number and remove any remaining secret. Do not bypass push protection.
