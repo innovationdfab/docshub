@@ -3015,7 +3015,7 @@ async function createBackup(){try{const data=await buildBackupPayload();download
 async function exportAllData(){try{const data=await buildBackupPayload();downloadJson({...data,type:'DocHub full data export'},'DocHub_All_Data.json');toast('All data exported')}catch(e){toast('Could not export data')}}
 async function restoreBackup(file){if(!file)return;try{const text=await file.text();const data=JSON.parse(text);if(!Array.isArray(data.docs))throw new Error('Invalid backup');if(data.auth)localStorage.setItem('docsphere_auth',JSON.stringify(data.auth));if(data.settings)localStorage.setItem('dochub_settings',JSON.stringify(data.settings));if(data.prefs)localStorage.setItem('dochub_user_prefs',JSON.stringify(data.prefs));for(const d of data.docs){const blob=typeof d.blob==='string'?dataURLToBlob(d.blob):null;if(!blob)continue;await addDoc({...d,blob,id:d.id||Date.now()+Math.random()})}applySiteSettings();applyAdvancedSettings();renderAuth();await renderAll();toast('Backup restored')}catch(e){toast('Invalid or unreadable backup')}finally{$('restoreBackupInput').value=''}}
 async function updateStorageUsage(){const docs=await docsAll();const bytes=docs.reduce((n,d)=>n+(Number(d.size)||d.blob?.size||0),0);$('storageUsedText').textContent=fmt(bytes)+' used';$('storageDocCount').textContent=docs.length+' document'+(docs.length===1?'':'s');const max=100*1024*1024;$('storageBarFill').style.width=Math.min(100,(bytes/max)*100)+'%';$('storageHint').textContent='Storage is calculated from PDFs saved in this browser. Bar shown against a 100 MB reference.'}
-async function deleteAccountAndData(){if(!confirm('Delete your local DocHub account, all saved documents and settings? This cannot be undone.'))return;try{const docs=await docsAll();for(const d of docs)await delDoc(d.id);localStorage.removeItem('docsphere_auth');localStorage.removeItem('dochub_settings');localStorage.removeItem('dochub_user_prefs');sessionStorage.removeItem('docsphere_pending_otp');applySiteSettings();applyAdvancedSettings();renderAuth();await renderAll();closeSettingsModal();toast('Account and local data deleted')}catch(e){toast('Could not delete all data')}}
+async function deleteAccountAndData(){if(!confirm('Delete your local DocHub account, all saved documents and settings? This cannot be undone.'))return;try{const docs=await docsAll();for(const d of docs)await delDoc(d.id);localStorage.removeItem('docsphere_auth');localStorage.removeItem('dochub_settings');localStorage.removeItem('dochub_user_prefs');sessionStorage.removeItem('docsphere_pending_otp');applySiteSettings();applyAdvancedSettings();renderAuth();await renderAll();closeSettingsModal();toast('Account and local data deleted')}catch(e){console.error(e);toast(e.message||'Could not delete all data','danger')}}
 function toggleProfileMenu(){const p=$('profileMenu');p.classList.toggle('show');$('notifPanel').classList.remove('show')}
 function showLoginStep(n){document.querySelectorAll('#loginModal .step').forEach(s=>s.classList.remove('active'));$('loginStep'+n).classList.add('active')}
 function openLoginModal(){$('profileMenu').classList.remove('show');const a=authState();$('loginName').value=a?.name||'';$('loginId').value=a?.id||'';$('loginOtp').value='';showLoginStep(1);$('loginModal').classList.add('show')}
@@ -3965,7 +3965,47 @@ async function docsAll(){
 
 async function addDoc(d){const {data:{session}}=await supabaseClient.auth.getSession();if(session?.user){const user=session.user;const typeSafe=String(d.docType||'Document').replace(/[^a-z0-9]+/gi,'_');const fileSafe=String(d.name||'document.pdf').replace(/[^a-z0-9._-]+/gi,'_');const storagePath=`${user.id}/${typeSafe}/${Date.now()}_${fileSafe}`;const {error:upErr}=await supabaseClient.storage.from('documents').upload(storagePath,d.blob,{contentType:'application/pdf',upsert:false});if(upErr)throw upErr;const row={user_id:user.id,person_name:d.person,document_type:d.docType,file_name:d.name,storage_path:storagePath,expiry_date:d.expiry||null,renewal_date:d.expiry||null,reminder_days:30,reminder_enabled:true,document_number:d.documentNumber||null,document_hash:d.documentHash||null,issue_date:d.issueDate||null,ocr_text:d.ocrText||'',ai_confidence:Number(d.aiConfidence||0),file_size:d.size||d.blob?.size||0};const {data,error}=await supabaseClient.from('documents').insert(row).select('id').single();if(error){await supabaseClient.storage.from('documents').remove([storagePath]);throw error}d.id=data.id;d.storagePath=storagePath;return d}return new Promise((res,rej)=>{const r=db.transaction('docs','readwrite').objectStore('docs').put({...d,id:Date.now()+Math.random()});r.onsuccess=()=>res(d);r.onerror=()=>rej(r.error)})}
 async function updateDoc(d){const {data:{session}}=await supabaseClient.auth.getSession();if(session?.user&&typeof d.id==='string'){const {error}=await supabaseClient.from('documents').update({person_name:d.person,document_type:d.docType,expiry_date:d.expiry||null,renewal_date:d.expiry||null}).eq('id',d.id);if(error)throw error;return}return new Promise((res,rej)=>{const r=db.transaction('docs','readwrite').objectStore('docs').put(d);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
-async function delDoc(id){const {data:{session}}=await supabaseClient.auth.getSession();if(session?.user&&typeof id==='string'){const {data:rows,error:qErr}=await supabaseClient.from('documents').select('storage_path').eq('id',id).limit(1);if(qErr)throw qErr;const path=rows?.[0]?.storage_path;if(path){const {error:sErr}=await supabaseClient.storage.from('documents').remove([path]);if(sErr)throw sErr}const {error}=await supabaseClient.from('documents').delete().eq('id',id);if(error)throw error;return}return new Promise((res,rej)=>{const r=db.transaction('docs','readwrite').objectStore('docs').delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+// Delete the private Supabase PDF first, then its DB row. Never report success on a
+// Storage request that silently removed no object (e.g. an RLS/session mismatch).
+async function delDoc(id){
+  const {data:sessionData,error:authError}=await supabaseClient.auth.getSession();
+  if(authError)throw new Error('Could not verify your Supabase session: '+authError.message);
+  const user=sessionData?.session?.user;
+  if(!user)throw new Error('Your Supabase session has expired. Reload DocHub and sign in again before deleting.');
+  if(typeof id!=='string')throw new Error('Invalid document ID. Reload the Vault and try again.');
+
+  const {data:row,error:lookupError}=await supabaseClient
+    .from('documents')
+    .select('id,user_id,storage_path')
+    .eq('id',id)
+    .eq('user_id',user.id)
+    .maybeSingle();
+  if(lookupError)throw new Error('Could not find document in Supabase: '+lookupError.message);
+  if(!row)throw new Error('This document is not accessible in the current account. Nothing was deleted.');
+
+  const path=String(row.storage_path||'').trim();
+  if(!path)throw new Error('This document has no storage path. Nothing was deleted.');
+  if(!path.startsWith(user.id+'/')){
+    throw new Error('This file belongs to another storage account. Nothing was deleted.');
+  }
+
+  const {data:removed,error:storageError}=await supabaseClient.storage
+    .from('documents').remove([path]);
+  if(storageError)throw new Error('Could not remove PDF from Supabase Storage: '+storageError.message);
+  if(!Array.isArray(removed)||!removed.some(item=>item?.name===path)){
+    throw new Error('Supabase did not confirm that the PDF was removed. Check Storage delete permissions and your current account. Nothing was removed from the Vault database.');
+  }
+
+  const {data:deleted,error:dbError}=await supabaseClient.from('documents')
+    .delete()
+    .eq('id',id)
+    .eq('user_id',user.id)
+    .select('id');
+  if(dbError||!Array.isArray(deleted)||deleted.length!==1){
+    throw new Error('The PDF was removed from Storage but its database record could not be deleted. Refresh DocHub and contact the administrator if it remains visible. '+(dbError?.message||''));
+  }
+  return true;
+}
 function loadImage(file){return new Promise((res,rej)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{URL.revokeObjectURL(u);res(img)};img.onerror=rej;img.src=u})}
 async function imagePageData(file){const img=await loadImage(file),maxW=1200,scale=Math.min(1,maxW/img.width),c=document.createElement('canvas');c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);return{jpeg:c.toDataURL('image/jpeg',.9),w:c.width,h:c.height}}
 function dataUrlBytes(d){const b=atob(d.split(',')[1]),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
@@ -4278,7 +4318,7 @@ window.deleteDoc=async id=>{
     }
   }catch(e){
     console.error(e);
-    toast(e.message||'Could not delete document');
+    toast(e.message||'Could not delete document','danger');
   }
 };
 
